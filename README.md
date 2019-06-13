@@ -60,7 +60,7 @@ while True:
 print('\n'.join(dm.history()))
 
 # print out service logs
-print(dm.logs())  """
+print(dm.logs())
 
 
 ```
