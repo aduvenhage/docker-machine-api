@@ -21,3 +21,46 @@ docker-machine create --driver digitalocean --digitalocean-image ubuntu-18-04-x6
 
 ## Python Usage Examples
 
+```
+from docker_machine.cl_api import DockerMachine
+
+
+# machine test/debug task callback
+def taskCb(**kwargs):
+    state = kwargs.pop('state', '')
+    task = kwargs.pop('task', None)
+    machine = kwargs.pop('machine', None)
+
+    if state == 'error':
+        print('%s. %s - %s. %s' % (machine, task, state, machine.errors()))
+    else:
+        print('%s. %s - %s' % (machine, task, state))
+
+# create new docker machine
+dm = DockerMachine(name='machine1', 
+                    config={ 
+                        'driver': 'digitalocean', 
+                        'digitalocean-image': 'ubuntu-18-04-x64', 
+                        'digitalocean-access-token': '...'
+                    },
+                    taskCb=taskCb)
+
+# add more tasks
+dm.tskGetServiceLogs()
+
+# wait for docker machine tasks to complete
+while True:
+    msg = dm.wait() 
+    if msg:
+        dm.clearErrors()
+    else:
+        break
+
+# print out task history
+print('\n'.join(dm.history()))
+
+# print out service logs
+print(dm.logs())  """
+
+
+```
