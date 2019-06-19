@@ -9,7 +9,7 @@ Key features of Python I had to learn:
 Docker-machine works well to provision remote VMs since it hides much of the boilerplate effort required to create a remote machine, manage keys and create a basic image with Docker installed.  All docker-engine settings are managed via environment variables, and it even makes it easy to secure copy and ssh on the remote VM (with the keys stored in the machine environment).  Docker-machine has built-in drivers for a whole range of cloud providers, including Amazon Web Services, Digital Ocean and Google Compute Engine.
 
 
-### Docker Machine Commands
+### Docker Machine Commands (CLI)
 - create VM (ubuntu 18.04 LTS -- Digital Ocean): 
 ```
 docker-machine create --driver digitalocean --digitalocean-image ubuntu-18-04-x64 --digitalocean-access-token=... do01
