@@ -72,7 +72,6 @@ class DockerMachine:
     The secure copy tasks can be used to copy files to and from remote machine. 
 
     '''
-
     __name = ''                   # name of machine
     __cwd = ''                    # working folder for docker-compose operations
     __config = {}                 # docker machine specific configuration
