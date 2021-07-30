@@ -5,7 +5,6 @@ import time
 import os
 import queue
 import re
-
 from datetime import datetime, timedelta
 
 
@@ -25,10 +24,13 @@ class DockerStreamReader:
     """
     External thread to help pull out text from task process.
     """
-    def __init__(self, queue_out, stream_in):
-        self.queue = queue_out
+    ansi_escape = re.compile(r'(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]')
+
+    def __init__(self, stream_in):
+        self._queue = queue.Queue()
         self._stream = stream_in
-        self._thread = threading.Thread(target=self._reader_thread, daemon=True).start()
+        self._thread = threading.Thread(target=self._reader_thread, daemon=True)
+        self._thread.start()
 
     def _format_text(self, text):
         return self.ansi_escape.sub('', text)
@@ -36,17 +38,36 @@ class DockerStreamReader:
     def _reader_thread(self):
         while not self._stream.closed:
             try:
-                text = self._stream.readLine()
-                self.queue.put(self._format_text(text))
+                text = self._stream.readline()
+                if text:
+                    self._queue.put(self._format_text(text.strip('\n')))
+                else:
+                    time.sleep(1)
+
             except Exception:
                 pass
 
+    def get_line(self):
+        """
+        returns next line in reader queue or None
+        """
+        try:
+            return self._queue.get(block=False)
+        except queue.Empty:
+            return None
+
     def wait(self):
-        self._thread.join()
+        """
+        close stream and wait for thread to stop
+        """
+        try:
+            self._stream.close()
+            self._thread.join(timeout=2)
+        except Exception:
+            pass
 
 
 class DockerMachineTask:
-    ansi_escape = re.compile(r'(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]')
     default_bin = 'docker-machine'
 
     def __init__(self, name='', cwd='./', bin=None, cmd='', params=[], timeout=540, allowed_to_fail=False, output_cb=None):
@@ -66,37 +87,77 @@ class DockerMachineTask:
         self._params = params
         self._timeout = timeout
         self._output_cb = output_cb
+        if self._output_cb:
+            self._output = list()
+        else:
+            self._output = None
+
         self._returncode = None
-        self._output = list()
         self._logger = logging.getLogger(self._name)
         self._allowed_to_fail = allowed_to_fail
 
     def __str__(self):
         return "%s %s: %d" % (self._bin, self._cmd, self._returncode)
 
-    def call(self, env, stdout_queue, stderr_queue):
-        # start process
-        args = [self._bin, self._cmd] + self._params
-        self._logger.info("calling <%s> ...", args)
+    def _process_output(self, stdout_queue, stderr_queue):
+        """
+        process all output from stream readers
+        """
+        while True:
+            stdout = self._stdout_reader.get_line()
+            if stdout is not None:
+                stdout_queue.put(stdout)
+                if self._output is not None:
+                    self._output.append(stdout)
 
-        process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, cwd=self._cwd, text=True)
-        self._stdout_reader = DockerStreamReader(stdout_queue, process.stdout)
-        self._stderr_reader = DockerStreamReader(stderr_queue, process.stderr)
+            stderr = self._stderr_reader.get_line()
+            if stderr is not None:
+                stderr_queue.put(stderr)
+                if self._output is not None:
+                    self._output.append(stderr)
+
+            if not stdout and not stderr:
+                break
+
+    def _finish_output(self, stdout_queue, stderr_queue):
+        """
+        wait for process to finish and read last bit of output
+        """
+        self._process.wait()
+        self._stdout_reader.wait()
+        self._stderr_reader.wait()
+        self._process_output(stdout_queue, stderr_queue)
+
+    def call(self, env, stdout_queue, stderr_queue):
+        """
+        call process and block until done
+        """
+        args = [self._bin, self._cmd] + self._params
+        self._logger.debug("calling <%s> ...", args)
+
+        # call process
+        self._process = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=env, cwd=self._cwd, text=True)
+        self._stdout_reader = DockerStreamReader(self._process.stdout)
+        self._stderr_reader = DockerStreamReader(self._process.stderr)
         self._popen_start_time = datetime.now()
         self._popen_timeout = timedelta(seconds=self._timeout)
 
         while True:
-            # check for process return or timeout
-            self._logger.info("polling ...")
-            self._returncode = process.poll()
+            # poll process for status and output
+            self._logger.debug("polling ...")
+            self._process_output(stdout_queue, stderr_queue)
+            self._returncode = self._process.poll()
 
+            # check process status
             if self._returncode is not None:
                 if self._returncode == 0 or self._allowed_to_fail:
+                    self._finish_output(stdout_queue, stderr_queue)
+
                     # success - task callback to process output
                     if self._output_cb:
                         self._output_cb(os.linesep.join(self._output))
 
-                    self._logger.info("done")
+                    self._logger.debug("done")
                     break
 
                 else:
@@ -104,14 +165,11 @@ class DockerMachineTask:
                     self._logger.error("failed - return code %s!", self._returncode)
                     raise DockerMachineError(self, 'Task call failed.')
 
+            # check process timeout
             if datetime.now() - self._popen_start_time > self._popen_timeout:
-                # failed - timeout
                 self._logger.error("timeout!")
-                process.kill()
-                self._stdout_reader.wait()
-                self._stderr_reader.wait()
-                process.wait()
-
+                self._process.kill()
+                self._finish_output(stdout_queue, stderr_queue)
                 raise DockerMachineError(self, 'Task call timeout.')
 
             time.sleep(1)
@@ -137,6 +195,8 @@ class DockerMachine:
         self._machine_status = ''
         self._machine_ip = ''
         self._machine_env = None
+        self._service_logs = None
+
         self._task_list = queue.Queue()
         self._stdout_queue = queue.Queue()
         self._stderr_queue = queue.Queue()
@@ -145,11 +205,10 @@ class DockerMachine:
 
         # add first tasks to provision, get env & IP and start services
         self.tskProvisionMachine()
-        # self.tskStartMachine()
+        self.tskStartMachine()
         self.tskGetMachineIp()
         self.tskGetMachineEnv()
         self.tskGetMachineStatus()
-        # self.tskStartServices()
 
     def __str__(self):
         return "Docker machine %s (%s), %s" % (self.name(), self.ip(), self.status())
@@ -194,7 +253,7 @@ class DockerMachine:
                 self._task_list.task_done()
 
             except queue.Empty:
-                self._logger.info("waiting for tasks ...")
+                self._logger.debug("waiting for tasks ...")
 
     def name(self):
         """
@@ -261,6 +320,43 @@ class DockerMachine:
                                         params=params,
                                         allowed_to_fail=allowed_to_fail))
 
+    def tskStartMachine(self, allowed_to_fail=True):
+        """
+        schedule task to start remote machine
+        """
+        self.add_task(DockerMachineTask(name='startMachine',
+                                        cwd=self.cwd(),
+                                        cmd='start',
+                                        params=[self.name()],
+                                        allowed_to_fail=allowed_to_fail))
+
+    def tskStopMachine(self):
+        """
+        schedule task to stop remote machine
+        """
+        self.add_task(DockerMachineTask(name='stopMachine',
+                                        cwd=self.cwd(),
+                                        cmd='stop',
+                                        params=[self.name()]))
+
+    def tskKillMachine(self):
+        """
+        schedule task to stop remote machine (forces stop)
+        """
+        self.add_task(DockerMachineTask(name='killMachine',
+                                        cwd=self.cwd(),
+                                        cmd='kill',
+                                        params=[self.name()]))
+
+    def tskRemoveMachine(self):
+        """
+        schedule task to completely remove machine locally and remotely
+        """
+        self.add_task(DockerMachineTask(name='removeMachine',
+                                        cwd=self.cwd(),
+                                        cmd='rm',
+                                        params=[self.name()]))
+
     def tskGetMachineEnv(self):
         """
         schedule task to get remote machine environment
@@ -279,7 +375,7 @@ class DockerMachine:
         schedule task to get remote machine status
         """
         def cb(text):
-            self._machine_status = text.strip('\n')
+            self._machine_status = text
 
         self.add_task(DockerMachineTask(name='getMachineStatus',
                                         cwd=self.cwd(),
@@ -292,7 +388,7 @@ class DockerMachine:
         schedule task to get remote machine IP
         """
         def cb(text):
-            self._machine_ip = text.strip('\n')
+            self._machine_ip = text
 
         self.add_task(DockerMachineTask(name='getMachineIp',
                                         cwd=self.cwd(),
@@ -300,76 +396,44 @@ class DockerMachine:
                                         params=[self.name()],
                                         output_cb=cb))
 
-
-"""        
-        
-    # schedule task to start remote machine 
-    def tskStartMachine(self):
-        self.__addTask(DockerMachineTask(name='startMachine', cwd=self.__cwd, cmd='start', params=[self.__name]))
-
-    # schedule task to stop remote machine 
-    def tskStopMachine(self):
-        self.__addTask(DockerMachineTask(name='stopMachine', cwd=self.__cwd, cmd='stop', params=[self.__name]))
-
-    # schedule task to stop remote machine (forces stop)
-    def tskKillMachine(self):
-        self.__addTask(DockerMachineTask(name='killMachine', cwd=self.__cwd, cmd='kill', params=[self.__name]))
-
-    # schedule task to completely remove machine locally and remotely
-    def tskRemoveMachine(self):
-        self.__addTask(DockerMachineTask(name='removeMachine', cwd=self.__cwd, cmd='rm', params=[self.__name]))
-
-    # schedule task to start remote machine services
-    def tskStartServices(self):
-        self.__addTask(DockerMachineTask(name='startServices', cwd=self.__cwd, bin='docker-compose', cmd='up', params=['--build', '-d']))
-
-    # schedule task to get remote machine service logs
-    def tskGetServiceLogs(self):
-        # NOTE: callback runs on machine task thread
-        def cb(task):
-            if task.returncode == 0:
-                with self.__machineLock:
-                    self.__serviceLogs = task.stdout.decode('ascii')
-
-        self.__addTask(DockerMachineTask(name='getServiceLogs', cwd=self.__cwd, bin='docker-compose', cmd='logs', params=['--tail=256'], callback=cb))
-
-    # schedule secure copy task
     def tskSecureCopyToMachine(self, src, dst):
-        self.__addTask(DockerMachineTask(name='secureCopy', cwd=self.__cwd, cmd='scp', params=['-r', src, self.__name + ':' + dst]))
+        """
+        schedule secure copy task
+        """
+        self.add_task(DockerMachineTask(name='secureCopy',
+                                        cwd=self.cwd(),
+                                        cmd='scp',
+                                        params=['-r', src, self.name() + ':' + dst]))
 
-    # schedule secure copy task
     def tskSecureCopyFromMachine(self, src, dst):
-        self.__addTask(DockerMachineTask(name='secureCopy', cwd=self.__cwd, cmd='scp', params=['-r', self.__name + ':' + src, dst]))
+        """
+        schedule secure copy task
+        """
+        self.add_task(DockerMachineTask(name='secureCopy',
+                                        cwd=self.cwd(),
+                                        cmd='scp',
+                                        params=['-r', self.name() + ':' + src, dst]))
 
-"""
+    def tskStartServices(self):
+        """
+        schedule task to start remote machine services
+        """
+        self.__addTask(DockerMachineTask(name='startServices',
+                                         cwd=self.cwd(),
+                                         bin='docker-compose',
+                                         cmd='up',
+                                         params=['--build', '-d']))
 
+    def tskGetServiceLogs(self):
+        """
+        chedule task to get remote machine service logs
+        """
+        def cb(text):
+            self._service_logs = text
 
-def test():
-    logging.basicConfig(level=10)
-    logger = logging.getLogger(__name__)
-
-    dm = DockerMachine(name='raytracer',
-                       cwd='../',
-                       config={ 
-                            'driver': 'digitalocean', 
-                            'digitalocean-image': 'ubuntu-18-04-x64', 
-                            'digitalocean-access-token': 'e177d1ce7be4e9950a2686f0a7dee3f8b653b74e177cfe5b4f86d8f3d9ecabdf',
-                            'engine-install-url': 'https://releases.rancher.com/install-docker/19.03.9.sh'
-                       })
-
-    while True:
-        try:
-            text = dm._stdout_queue.get(block=False)
-            logger.info(text)
-        except Exception:
-            pass
-
-        try:
-            text = dm._stderr_queue.get(block=False)
-            logger.error(text)
-        except Exception:
-            pass
-
-
-if __name__ == "__main__":
-    test()
+        self.add_task(DockerMachineTask(name='getServiceLogs',
+                                        cwd=self.cwd(),
+                                        bin='docker-compose',
+                                        cmd='logs',
+                                        params=['--tail=256'],
+                                        output_cb=cb))
