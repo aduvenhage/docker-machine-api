@@ -9,6 +9,9 @@ from datetime import datetime, timedelta
 
 
 class DockerMachineError(Exception):
+    """
+    Exception thrown by machine components.
+    """
     def __init__(self, task, message):
         self.task = task
         self.message = message
@@ -22,7 +25,8 @@ class DockerMachineError(Exception):
 
 class DockerStreamReader:
     """
-    External thread to help pull out text from task process.
+    External thread to help pull out text from machine task processes.
+    NOTE: this extra thread is required, since reading from STDERR and STDOUT could block.
     """
     ansi_escape = re.compile(r'(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]')
 
@@ -33,23 +37,29 @@ class DockerStreamReader:
         self._thread.start()
 
     def _format_text(self, text):
+        """
+        Remove ANSI colour codes, etc
+        """
         return self.ansi_escape.sub('', text)
 
     def _reader_thread(self):
+        """
+        Read all data from stream and add to internal readline queue
+        """
         while not self._stream.closed:
             try:
                 text = self._stream.readline()
                 if text:
                     self._queue.put(self._format_text(text.strip('\n')))
                 else:
-                    time.sleep(1)
+                    time.sleep(1)  # wait a little if nothing available
 
             except Exception:
                 pass
 
     def get_line(self):
         """
-        returns next line in reader queue or None
+        Returns next line in reader queue or None.
         """
         try:
             return self._queue.get(block=False)
@@ -58,7 +68,7 @@ class DockerStreamReader:
 
     def wait(self):
         """
-        close stream and wait for thread to stop
+        Close stream and wait for thread to stop.
         """
         try:
             self._stream.close()
@@ -68,9 +78,13 @@ class DockerStreamReader:
 
 
 class DockerMachineTask:
+    """
+    Wrapper for a task process run by machine.
+    """
     default_bin = 'docker-machine'
+    default_timeout = 540
 
-    def __init__(self, name='', cwd='./', bin=None, cmd='', params=[], timeout=540, allowed_to_fail=False, output_cb=None):
+    def __init__(self, name='', cwd='./', bin=None, cmd='', params=[], timeout=None, allowed_to_fail=False, output_cb=None):
         """
         :param name: task name
         :param cwd: working directry (docker-compose root)
@@ -85,7 +99,7 @@ class DockerMachineTask:
         self._bin = bin or self.default_bin
         self._cmd = cmd
         self._params = params
-        self._timeout = timeout
+        self._timeout = timeout or self.default_timeout
         self._output_cb = output_cb
         if self._output_cb:
             self._output = list()
@@ -101,7 +115,7 @@ class DockerMachineTask:
 
     def _process_output(self, stdout_queue, stderr_queue):
         """
-        process all output from stream readers
+        Process all output from stream readers.
         """
         while True:
             stdout = self._stdout_reader.get_line()
@@ -121,7 +135,7 @@ class DockerMachineTask:
 
     def _finish_output(self, stdout_queue, stderr_queue):
         """
-        wait for process to finish and read last bit of output
+        Wait for process to finish and read last bit of output.
         """
         self._process.wait()
         self._stdout_reader.wait()
@@ -130,7 +144,7 @@ class DockerMachineTask:
 
     def call(self, env, stdout_queue, stderr_queue):
         """
-        call process and block until done
+        Call process and block until done.
         """
         args = [self._bin, self._cmd] + self._params
         self._logger.debug("calling <%s> ...", args)
@@ -177,14 +191,8 @@ class DockerMachineTask:
 
 class DockerMachine:
     """
-    Docker Machine CLI wrapper, with docker-compose service initialisation.
-
-    Methods with names that start with 'tsk', for example 'tskGetMachineStatus()', only schedule a task and returns immediately.
-
-    Task callback (set with setTaskCallback()) will receive (machine=, task=, state=, final=) keyed arguments. 'state' can be
-    'start' (called just before taske execution), 'success', or 'error'. 'final' is set to True when this is the last task scheduled. 
-
-    The secure copy tasks can be used to copy files to and from remote machine.
+    Docker Machine CLI wrapper.
+    Manages docker machine provisioning, setup and tasks.
     """
     def __init__(self, name='', cwd='./', config={}):
         self._name = name
@@ -203,7 +211,7 @@ class DockerMachine:
 
         threading.Thread(target=self._machine_thread, daemon=True).start() 
 
-        # add first tasks to provision, get env & IP and start services
+        # add first tasks to provision and setup machine
         self.tskProvisionMachine()
         self.tskStartMachine()
         self.tskGetMachineIp()
@@ -211,11 +219,11 @@ class DockerMachine:
         self.tskGetMachineStatus()
 
     def __str__(self):
-        return "Docker machine %s (%s), %s" % (self.name(), self.ip(), self.status())
+        return "Docker machine %s, %s, %s" % (self.name(), self.ip(), self.status())
 
     def _parse_env_text(self, input, env=os.environ.copy()):
         """
-        parse 'export key="value"\n...' type multi-line strings and return updated environment dictionary
+        Parse 'export key="value"\n...' type multi-line strings and return updated environment dictionary.
         """
         output = env
         lines = input.splitlines()
@@ -234,7 +242,7 @@ class DockerMachine:
 
     def _machine_thread(self):
         """
-        machine task thread (executes tasks queued with '_addTask')
+        Machine task thread (executes tasks queued with '_add_task').
         """
         while True:
             try:
@@ -257,55 +265,55 @@ class DockerMachine:
 
     def name(self):
         """
-        returns machine name (read-only)
+        Returns machine name (read-only)
         """
         return self._name
 
     def config(self):
         """
-        returns machine config (provides specific provisioning details; read-only)
+        Returns machine config (provides specific provisioning details; read-only)
         """
         return self._config
 
     def cwd(self):
         """
-        returns local machine services working folder (docker-compose file location; read-only)
+        Returns local machine services working folder (docker-compose file location; read-only)
         """
         return self._cwd
 
     def ip(self):
         """
-        returns the IP of the remote machine
+        Returns the IP of the remote machine
         """
         return self._machine_ip
 
     def env(self):
         """
-        returns the ENV vars of the remote machine
+        Returns the ENV vars of the remote machine
         """
         return self._machine_env
 
     def status(self):
         """
-        returns the current status of the machine
+        Returns the current status of the machine
         """
         return self._machine_status
 
     def add_task(self, task):
         """
-        machine task execution thread
+        Machine task execution thread
         """
         self._task_list.put(task)
 
     def wait(self):
         """
-        blocks caller until all scheduled tasks have finished
+        Blocks caller until all scheduled tasks have finished
         """
         self._task_list.join()
 
     def tskProvisionMachine(self, allowed_to_fail=True):
         """
-        schedule task to provision remote machine
+        Schedule task to provision remote machine
         """
         params = []
         for key, value in self._config.items():
@@ -322,7 +330,7 @@ class DockerMachine:
 
     def tskStartMachine(self, allowed_to_fail=True):
         """
-        schedule task to start remote machine
+        Schedule task to start remote machine
         """
         self.add_task(DockerMachineTask(name='startMachine',
                                         cwd=self.cwd(),
@@ -332,7 +340,7 @@ class DockerMachine:
 
     def tskStopMachine(self):
         """
-        schedule task to stop remote machine
+        Schedule task to stop remote machine
         """
         self.add_task(DockerMachineTask(name='stopMachine',
                                         cwd=self.cwd(),
@@ -341,7 +349,7 @@ class DockerMachine:
 
     def tskKillMachine(self):
         """
-        schedule task to stop remote machine (forces stop)
+        Schedule task to stop remote machine (forces stop)
         """
         self.add_task(DockerMachineTask(name='killMachine',
                                         cwd=self.cwd(),
@@ -350,7 +358,7 @@ class DockerMachine:
 
     def tskRemoveMachine(self):
         """
-        schedule task to completely remove machine locally and remotely
+        Schedule task to completely remove machine locally and remotely
         """
         self.add_task(DockerMachineTask(name='removeMachine',
                                         cwd=self.cwd(),
@@ -359,7 +367,7 @@ class DockerMachine:
 
     def tskGetMachineEnv(self):
         """
-        schedule task to get remote machine environment
+        Schedule task to get remote machine environment
         """
         def cb(text):
             self._machine_env = self._parse_env_text(input=text)
@@ -372,7 +380,7 @@ class DockerMachine:
 
     def tskGetMachineStatus(self):
         """
-        schedule task to get remote machine status
+        Schedule task to get remote machine status
         """
         def cb(text):
             self._machine_status = text
@@ -385,7 +393,7 @@ class DockerMachine:
 
     def tskGetMachineIp(self):
         """
-        schedule task to get remote machine IP
+        Schedule task to get remote machine IP
         """
         def cb(text):
             self._machine_ip = text
@@ -398,7 +406,7 @@ class DockerMachine:
 
     def tskSecureCopyToMachine(self, src, dst):
         """
-        schedule secure copy task
+        Schedule secure copy task
         """
         self.add_task(DockerMachineTask(name='secureCopy',
                                         cwd=self.cwd(),
@@ -407,7 +415,7 @@ class DockerMachine:
 
     def tskSecureCopyFromMachine(self, src, dst):
         """
-        schedule secure copy task
+        Schedule secure copy task
         """
         self.add_task(DockerMachineTask(name='secureCopy',
                                         cwd=self.cwd(),
@@ -416,7 +424,7 @@ class DockerMachine:
 
     def tskStartServices(self):
         """
-        schedule task to start remote machine services
+        Schedule task to start remote machine services
         """
         self.__addTask(DockerMachineTask(name='startServices',
                                          cwd=self.cwd(),
@@ -426,7 +434,7 @@ class DockerMachine:
 
     def tskGetServiceLogs(self):
         """
-        chedule task to get remote machine service logs
+        Schedule task to get remote machine service logs
         """
         def cb(text):
             self._service_logs = text

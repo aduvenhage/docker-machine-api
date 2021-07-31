@@ -9,6 +9,7 @@ def test_api():
     logging.basicConfig(level=20)
     logger = logging.getLogger(__name__)
 
+    # create machine API
     dm = DockerMachine(name='raytracer',
                        cwd='../',
                        config={
@@ -18,6 +19,7 @@ def test_api():
                             'engine-install-url': 'https://releases.rancher.com/install-docker/19.03.9.sh'
                        })
 
+    # watch machine output
     while True:
         try:
             text = dm._stdout_queue.get(block=False)
