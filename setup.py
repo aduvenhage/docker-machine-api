@@ -3,9 +3,12 @@ import setuptools
 with open("README.md", "r", encoding="utf-8") as fh:
     long_description = fh.read()
 
+with open("version", "r", encoding="utf-8") as version_file:
+    version = version_file.read().strip()
+
 setuptools.setup(
     name="docker-machine-api",
-    version="1.0.0",
+    version=version,
     author="Arno Duvenhage",
     author_email="aduvenhage@gmail.com",
     description="Docker-machine CLI wrapper that can be used from within Python applications to create and manage remote/cloud VM services using docker-machine",

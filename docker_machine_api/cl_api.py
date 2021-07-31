@@ -209,7 +209,7 @@ class DockerMachine:
         self._stdout_queue = queue.Queue()
         self._stderr_queue = queue.Queue()
 
-        threading.Thread(target=self._machine_thread, daemon=True).start() 
+        threading.Thread(target=self._machine_thread, daemon=True).start()
 
         # add first tasks to provision and setup machine
         self.tskProvisionMachine()
@@ -249,7 +249,7 @@ class DockerMachine:
                 task = self._task_list.get(timeout=1)
 
                 try:
-                    self._logger.info("calling task '%s' ...", self._name)
+                    self._logger.info("calling task '%s' ...", task._name)
                     task.call(env=self._machine_env,
                               stdout_queue=self._stdout_queue,
                               stderr_queue=self._stderr_queue)
