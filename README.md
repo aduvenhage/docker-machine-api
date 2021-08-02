@@ -21,8 +21,10 @@ docker-machine create --driver digitalocean --digitalocean-image ubuntu-18-04-x6
 - ssh into remote machine: `docker-machine ssh do01`
 - list machines: `docker-machine ls`
 - remove machines: `docker-machine rm do01`
-- provision a system: docker-machine (create --> ssh --> docker-compose up)
+- provision a system: docker-machine (create --> eval ... --> docker-compose up)
 - NOTE: Docker containers may not use volumes/shares/mounts. All shared data must be copied by Dockerfile
+- NOTE: Digital Ocean VMs have to be in the same data center (in this case sfo2) as their floating IPs
+
 
 ## Build package
 From source root `python setup.py sdist`

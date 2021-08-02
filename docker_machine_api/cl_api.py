@@ -27,6 +27,7 @@ class DockerStreamReader:
     """
     External thread to help pull out text from machine task processes.
     NOTE: this extra thread is required, since reading from STDERR and STDOUT could block.
+    TODO: always wait a little to make sure we do not miss output on tasks that end quickly
     """
     ansi_escape = re.compile(r'(\x9B|\x1B\[)[0-?]*[ -\/]*[@-~]')
 
@@ -426,11 +427,11 @@ class DockerMachine:
         """
         Schedule task to start remote machine services
         """
-        self.__addTask(DockerMachineTask(name='startServices',
-                                         cwd=self.cwd(),
-                                         bin='docker-compose',
-                                         cmd='up',
-                                         params=['--build', '-d']))
+        self.add_task(DockerMachineTask(name='startServices',
+                                        cwd=self.cwd(),
+                                        bin='docker-compose',
+                                        cmd='up',
+                                        params=[]))
 
     def tskGetServiceLogs(self):
         """
