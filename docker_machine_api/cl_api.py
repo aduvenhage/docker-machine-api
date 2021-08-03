@@ -78,6 +78,11 @@ class DockerStreamReader:
             pass
 
 
+TODO:
+- add machine config class
+- check out [https://gnowland.medium.com/unique-remote-local-volume-paths-with-docker-machine-40a4e369bcac] for remote volume hacks
+
+
 class DockerMachineTask:
     """
     Wrapper for a task process run by machine.
@@ -195,7 +200,17 @@ class DockerMachine:
     Docker Machine CLI wrapper.
     Manages docker machine provisioning, setup and tasks.
     """
-    def __init__(self, name='', cwd='./', config={}):
+    def __init__(self, name='', cwd='./', config={}, user_env={}):
+        """
+        :param name: str: machine name
+        :param cwd: path: machine working directory (in which processes will run)
+        :param config: dict: docker-machine config
+        :param user_env: dict: user suplied environment variables
+
+        User supplied environment variables are combined with current OS environment
+        and then supplied to sub-process calls.
+
+        """
         self._name = name
         self._cwd = cwd
         self._config = config
@@ -203,8 +218,11 @@ class DockerMachine:
 
         self._machine_status = ''
         self._machine_ip = ''
-        self._machine_env = None
         self._service_logs = None
+
+        self._os_env = os.environ.copy()
+        self._user_env = user_env.copy()
+        self._machine_env = {}
 
         self._task_list = queue.Queue()
         self._stdout_queue = queue.Queue()
@@ -222,11 +240,11 @@ class DockerMachine:
     def __str__(self):
         return "Docker machine %s, %s, %s" % (self.name(), self.ip(), self.status())
 
-    def _parse_env_text(self, input, env=os.environ.copy()):
+    def _parse_env_text(self, input):
         """
         Parse 'export key="value"\n...' type multi-line strings and return updated environment dictionary.
         """
-        output = env
+        output = {}
         lines = input.splitlines()
 
         for line in lines:
@@ -251,7 +269,7 @@ class DockerMachine:
 
                 try:
                     self._logger.info("calling task '%s' ...", task._name)
-                    task.call(env=self._machine_env,
+                    task.call(env=self.env(),
                               stdout_queue=self._stdout_queue,
                               stderr_queue=self._stderr_queue)
 
@@ -292,13 +310,20 @@ class DockerMachine:
         """
         Returns the ENV vars of the remote machine
         """
-        return self._machine_env
+        return {
+            **self._os_env,
+            **self._user_env,
+            **self._machine_env
+        }
 
     def status(self):
         """
         Returns the current status of the machine
         """
         return self._machine_status
+
+    def logs(self):
+        return self._service_logs
 
     def add_task(self, task):
         """
@@ -423,15 +448,26 @@ class DockerMachine:
                                         cmd='scp',
                                         params=['-r', self.name() + ':' + src, dst]))
 
-    def tskStartServices(self):
+    def tskRunServices(self, timeout=None):
         """
-        Schedule task to start remote machine services
+        Schedule task to run remote machine services (docker-compose up)
         """
         self.add_task(DockerMachineTask(name='startServices',
                                         cwd=self.cwd(),
                                         bin='docker-compose',
                                         cmd='up',
-                                        params=[]))
+                                        params=[],
+                                        timeout=timeout))
+
+    def tskStartServices(self):
+        """
+        Schedule task to run remote machine services in background (docker-compose up -d)
+        """
+        self.add_task(DockerMachineTask(name='startServices',
+                                        cwd=self.cwd(),
+                                        bin='docker-compose',
+                                        cmd='up',
+                                        params=['-d']))
 
     def tskGetServiceLogs(self):
         """
