@@ -1,0 +1,6 @@
+[flake8]
+format = default
+show-source = True
+max-line-length = 140
+statistics = True
+exclude = .git,__pycache__
