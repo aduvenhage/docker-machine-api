@@ -78,11 +78,6 @@ class DockerStreamReader:
             pass
 
 
-TODO:
-- add machine config class
-- check out [https://gnowland.medium.com/unique-remote-local-volume-paths-with-docker-machine-40a4e369bcac] for remote volume hacks
-
-
 class DockerMachineTask:
     """
     Wrapper for a task process run by machine.

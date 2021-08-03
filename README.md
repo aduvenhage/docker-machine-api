@@ -65,3 +65,9 @@ from docker_machine_api.cl_api import DockerMachine
         time.sleep(0.1)
 
 ```
+
+## Feature List
+- [x] Docker machine task manager
+- [x] Tasks to provision, start/stop, get status, etc. 
+- [x] sub-process stdout/stderr stream available to user
+- [ ] Config options for AWS, GCP and DO
