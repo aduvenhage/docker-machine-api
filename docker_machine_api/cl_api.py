@@ -492,7 +492,7 @@ def start_render_machine(token, scenario):
 
     # create new docker machine
     dm = DockerMachine(name='raytracer',
-                       cwd='../',
+                       cwd='./../raytracer',
                        config={
                             'driver': 'digitalocean', 
                             'digitalocean-image': 'ubuntu-18-04-x64', 
@@ -505,7 +505,7 @@ def start_render_machine(token, scenario):
                            'VOLUME': '/root/output/'
                        })
 
-    dm.tskStartServices()
+    dm.tskRunServices()
     return dm
 
 
