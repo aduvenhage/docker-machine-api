@@ -178,7 +178,9 @@ class DockerMachineTask:
                 else:
                     # failed - exception
                     self._logger.error("failed - return code %s!", self._returncode)
-                    raise DockerMachineError(self, 'Task call failed.')
+                    self._process.kill()
+                    self._finish_output(stdout_queue, stderr_queue)
+                    raise DockerMachineError(self, 'Task call failed - return code %s!' % self._returncode)
 
             # check process timeout
             if datetime.now() - self._popen_start_time > self._popen_timeout:
@@ -222,6 +224,7 @@ class DockerMachine:
         self._task_list = queue.Queue()
         self._stdout_queue = queue.Queue()
         self._stderr_queue = queue.Queue()
+        self._idle = True
 
         threading.Thread(target=self._machine_thread, daemon=True).start()
 
@@ -261,6 +264,7 @@ class DockerMachine:
         while True:
             try:
                 task = self._task_list.get(timeout=1)
+                self._idle = False
 
                 try:
                     self._logger.info("calling task '%s' ...", task._name)
@@ -268,14 +272,14 @@ class DockerMachine:
                               stdout_queue=self._stdout_queue,
                               stderr_queue=self._stderr_queue)
 
-                except Exception:
-                    self._logger.exception("failed to execute task '%s'!", task._name)
-                    raise
+                except Exception as ex:
+                    self._logger.exception("failed to execute task '%s'!. [%s] %s", task._name, type(ex).__name__, str(ex))
 
                 self._task_list.task_done()
 
             except queue.Empty:
                 self._logger.debug("waiting for tasks ...")
+                self._idle = True
 
     def name(self):
         """
@@ -331,6 +335,9 @@ class DockerMachine:
         Blocks caller until all scheduled tasks have finished
         """
         self._task_list.join()
+
+    def busy(self):
+        return not self._idle
 
     def tskProvisionMachine(self, allowed_to_fail=True):
         """
@@ -447,7 +454,7 @@ class DockerMachine:
         """
         Schedule task to run remote machine services (docker-compose up)
         """
-        self.add_task(DockerMachineTask(name='startServices',
+        self.add_task(DockerMachineTask(name='runServices',
                                         cwd=self.cwd(),
                                         bin='docker-compose',
                                         cmd='up',
@@ -477,3 +484,55 @@ class DockerMachine:
                                         cmd='logs',
                                         params=['--tail=256'],
                                         output_cb=cb))
+
+
+def start_render_machine(token, scenario):
+    logger = logging.getLogger(__name__)
+    logger.info("TOKEN %s", token)
+
+    # create new docker machine
+    dm = DockerMachine(name='raytracer',
+                       cwd='../',
+                       config={
+                            'driver': 'digitalocean', 
+                            'digitalocean-image': 'ubuntu-18-04-x64', 
+                            'digitalocean-access-token': token,
+                            'engine-install-url': 'https://releases.rancher.com/install-docker/19.03.9.sh'
+                       },
+                       user_env={
+                           'SCENARIO': scenario,
+                           'OUTPUT': 'raytraced_frame.jpeg',
+                           'VOLUME': '/root/output/'
+                       })
+
+    dm.tskStartServices()
+    return dm
+
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=20)
+    logger = logging.getLogger(__name__)
+
+    dm = start_render_machine(os.environ['TOKEN'], 'scene2')
+
+    # wait for rendering to complete
+    idle = False
+    while dm.busy() or not idle:
+        idle = True
+        try:
+            text = dm._stdout_queue.get(block=False)
+            logger.info(text)
+            idle = False
+        except Exception:
+            pass
+
+        try:
+            text = dm._stderr_queue.get(block=False)
+            logger.error(text)
+            idle = False
+        except Exception:
+            pass
+
+        if idle:
+            time.sleep(0.1)
