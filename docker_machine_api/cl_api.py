@@ -510,7 +510,11 @@ def start_render_machine(token, scenario):
 
 
 
+
 if __name__ == "__main__":
+    """
+    For testing only ...
+    """
     logging.basicConfig(level=20)
     logger = logging.getLogger(__name__)
 
