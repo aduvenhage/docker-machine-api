@@ -366,23 +366,25 @@ class DockerMachine:
                                         params=[self.name()],
                                         allowed_to_fail=allowed_to_fail))
 
-    def tskStopMachine(self):
+    def tskStopMachine(self, allowed_to_fail=True):
         """
         Schedule task to stop remote machine
         """
         self.add_task(DockerMachineTask(name='stopMachine',
                                         cwd=self.cwd(),
                                         cmd='stop',
-                                        params=[self.name()]))
+                                        params=[self.name()],
+                                        allowed_to_fail=allowed_to_fail))
 
-    def tskKillMachine(self):
+    def tskKillMachine(self, allowed_to_fail=True):
         """
         Schedule task to stop remote machine (forces stop)
         """
         self.add_task(DockerMachineTask(name='killMachine',
                                         cwd=self.cwd(),
                                         cmd='kill',
-                                        params=[self.name()]))
+                                        params=[self.name()],
+                                        allowed_to_fail=allowed_to_fail))
 
     def tskRemoveMachine(self):
         """
@@ -391,7 +393,7 @@ class DockerMachine:
         self.add_task(DockerMachineTask(name='removeMachine',
                                         cwd=self.cwd(),
                                         cmd='rm',
-                                        params=[self.name()]))
+                                        params=['-f', '-y', self.name()]))
 
     def tskGetMachineEnv(self):
         """

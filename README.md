@@ -10,6 +10,20 @@ Key features of Python I had to learn:
 ## Docker Machine
 Docker-machine works well to provision remote VMs since it hides much of the boilerplate effort required to create a remote machine, manage keys and create a basic image with Docker installed.  All docker-engine settings are managed via environment variables, and it even makes it easy to secure copy and ssh on the remote VM (with the keys stored in the machine environment).  Docker-machine has built-in drivers for a whole range of cloud providers, including Amazon Web Services, Digital Ocean and Google Compute Engine.
 
+### Installing docker-machine
+The install on my macbook was straightforward:
+- Docker: download docker desktop from https://www.docker.com/products/docker-desktop
+- docker-machine: brew install docker-machine, doctl
+- create API token: https://cloud.digitalocean.com/account/api/tokens
+- login on API: `doctl auth init $TOKEN`
+- list droplet sizes: `doctl compute size ls`
+  for example:
+  ```
+  Slug                  Memory    VCPUs    Disk    Price Monthly    Price Hourly
+  c-4                   8192      4        50      80.00            0.119050
+  c-32                  65536     32       400     640.00           0.952380
+  ```
+
 
 ### Docker Machine Commands (CLI)
 - create VM (ubuntu 18.04 LTS -- Digital Ocean): 
@@ -33,7 +47,6 @@ From source root `python setup.py sdist`
 `pip install docker-machine-api-x.x.x.tar.gz` on built package file.
 
 ## Python Usage Examples
-
 ```
 from docker_machine_api.cl_api import DockerMachine
 

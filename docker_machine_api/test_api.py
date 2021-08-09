@@ -26,6 +26,10 @@ def start_render_machine(token, scenario):
                        })
 
     dm.tskRunServices()
+    dm.tskSecureCopyFromMachine("/root/output/raytraced_frame.jpeg", "raytraced.jpeg")
+    dm.tskStopMachine()
+    dm.tskKillMachine()
+    dm.tskRemoveMachine()
     return dm
 
 
@@ -46,6 +50,7 @@ if __name__ == "__main__":
             text = dm._stdout_queue.get(block=False)
             logger.info(text)
             idle = False
+
         except Exception:
             pass
 
@@ -53,8 +58,9 @@ if __name__ == "__main__":
             text = dm._stderr_queue.get(block=False)
             logger.error(text)
             idle = False
+
         except Exception:
             pass
 
         if idle:
-            time.sleep(0.1)
+            time.sleep(0.2)
