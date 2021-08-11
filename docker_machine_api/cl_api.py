@@ -83,7 +83,7 @@ class DockerMachineTask:
     Wrapper for a task process run by machine.
     """
     default_bin = 'docker-machine'
-    default_timeout = 540
+    default_timeout = 540  # seconds
 
     def __init__(self, name='', cwd='./', bin=None, cmd='', params=[], timeout=None, allowed_to_fail=False, output_cb=None):
         """

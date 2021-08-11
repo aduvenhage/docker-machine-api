@@ -7,6 +7,8 @@ Key features of Python I had to learn:
 - queues
 - file streams
 
+*NOTE*: checkout <https://aduvenhage.github.io/raytracer/> for an example of where I use this API to run raytracing in the cloud.
+
 ## Docker Machine
 Docker-machine works well to provision remote VMs since it hides much of the boilerplate effort required to create a remote machine, manage keys and create a basic image with Docker installed.  All docker-engine settings are managed via environment variables, and it even makes it easy to secure copy and ssh on the remote VM (with the keys stored in the machine environment).  Docker-machine has built-in drivers for a whole range of cloud providers, including Amazon Web Services, Digital Ocean and Google Compute Engine.
 
@@ -36,15 +38,15 @@ docker-machine create --driver digitalocean --digitalocean-image ubuntu-18-04-x6
 - list machines: `docker-machine ls`
 - remove machines: `docker-machine rm do01`
 - provision a system: docker-machine (create --> eval ... --> docker-compose up)
-- NOTE: Docker containers may not use volumes/shares/mounts. All shared data must be copied by Dockerfile
-- NOTE: Digital Ocean VMs have to be in the same data center (in this case sfo2) as their floating IPs
+
 
 
 ## Build package
 From source root `python setup.py sdist`
 
 ## Install package
-`pip install docker-machine-api-x.x.x.tar.gz` on built package file.
+- `pip install docker-machine-api-x.x.x.tar.gz` on built package file, or
+- `pip install git+https://github.com/aduvenhage/docker-machine-api` to install directly from github.
 
 ## Python Usage Examples
 ```
@@ -59,23 +61,31 @@ from docker_machine_api.cl_api import DockerMachine
                             'digitalocean-image': 'ubuntu-18-04-x64', 
                             'digitalocean-access-token': '....',
                             'engine-install-url': 'https://releases.rancher.com/install-docker/19.03.9.sh'
-                       })
+                       },
+                       user_env={...})
 
     # watch machine output
-    while True:
+    idle = False
+    while dm.busy() or not idle:
+        idle = True
         try:
             text = dm._stdout_queue.get(block=False)
             logger.info(text)
+            idle = False
+
         except Exception:
             pass
 
         try:
             text = dm._stderr_queue.get(block=False)
             logger.error(text)
+            idle = False
+
         except Exception:
             pass
 
-        time.sleep(0.1)
+        if idle:
+            time.sleep(0.2)
 
 ```
 
