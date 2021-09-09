@@ -17,13 +17,30 @@ The install on my macbook was straightforward:
 - Docker: download docker desktop from https://www.docker.com/products/docker-desktop
 - docker-machine: brew install docker-machine, doctl
 - create API token: https://cloud.digitalocean.com/account/api/tokens
-- login on API: `doctl auth init $TOKEN`
+- login on API: `doctl auth init -t $TOKEN`
 - list droplet sizes: `doctl compute size ls`
   for example:
   ```
   Slug                  Memory    VCPUs    Disk    Price Monthly    Price Hourly
   c-4                   8192      4        50      80.00            0.119050
   c-32                  65536     32       400     640.00           0.952380
+  ```
+- list available regions: `doctl compute region ls`
+  for example:
+  ```
+  nyc1    New York 1         true
+  sfo1    San Francisco 1    false
+  nyc2    New York 2         false
+  ams2    Amsterdam 2        false
+  sgp1    Singapore 1        true
+  lon1    London 1           true
+  nyc3    New York 3         true
+  ams3    Amsterdam 3        true
+  fra1    Frankfurt 1        true
+  tor1    Toronto 1          true
+  sfo2    San Francisco 2    true
+  blr1    Bangalore 1        true
+  sfo3    San Francisco 3    true  
   ```
 
 

@@ -4,6 +4,7 @@ import time
 import os
 
 from cl_api import DockerMachine
+from machine_config import DigitalOceanConfig
 
 
 def start_render_machine(token, scenario):
@@ -11,14 +12,10 @@ def start_render_machine(token, scenario):
     logger.info("TOKEN %s", token)
 
     # create new docker machine
+    config = DigitalOceanConfig(token=token)
     dm = DockerMachine(name='raytracer',
                        cwd='./../raytracer',
-                       config={
-                            'driver': 'digitalocean', 
-                            'digitalocean-image': 'ubuntu-18-04-x64', 
-                            'digitalocean-access-token': token,
-                            'engine-install-url': 'https://releases.rancher.com/install-docker/19.03.9.sh'
-                       },
+                       config=config.config(),
                        user_env={
                            'SCENARIO': scenario,
                            'OUTPUT': 'raytraced_frame.jpeg',
